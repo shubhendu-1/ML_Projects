@@ -1,0 +1,112 @@
+# ML_Projects - Load Default Model using pyspark
+# pyspark ML libraries wer used along with pandas and numpy. Logistic Regression Classificatin algorithm has been used
+import pandas as pd
+import numpy as np
+import sys,os
+import pyspark.sql import SparkSession
+from matplotlib import pyplot as plt
+
+#Loading of bank loan dataset. Here folder 1,2,3 are the subpath where .csv file is present
+path = 'C:/Users/folder1/folder2/folder3/bank_loan.csv'
+spark = SparkSession.builder.master('local[*]').appName('ml-loan-default-model').getorCreate()
+data = spark.read.csv(path=path,header=True,inferschema=True)
+data = data.drop('_c0')
+data.printSchema()
+
+pd.DataFrame(data.take(6),columns=data.columns)
+data.groupby('deposit').count().show()
+
+#collect features which are numeric
+features_numeric = [p[0] for p in data.dtypes if p[1] == 'int']
+data.select(features_numeric).describe().toPandas()
+
+data_numeric = data.select(features_numeric).toPandas()
+
+#correlation scatter matrix among variables
+from pandas.plotting import scatter_matrix
+axis = scatter_matrix(data_numeric,figsize(10,10))
+n = len(data_numeric.columns)
+
+for i in range(n):
+    p = axis[i,0],
+    p.yaxis.label.set_ha('right')
+    p.yaxis.label.set_rotation(0)
+    p.set_yticks(())
+    q = axis[n-1,i]
+    q.xaxis.label.set_rotation(90)
+    q.set_xticks(())
+
+plt.show()
+
+data = data.drop('day','month')
+data.printSchema()
+
+#Prepare Data from model development
+from pyspark.ml.features import OneHotEncoder,StringIndexer,VectorAssembler
+
+#collect categorical variables
+categoryColumns = ['job','marital_status','education','default','housing','loan','contract','poutcome']
+
+stages = []
+
+for categoryCol in categoryColumns:
+    stringIndexer = StringIndexer(inputCol=categoryCol,outputCol=categoryCol+'Index')
+    encoder = OneHotEncoder(inputCols=[stringIndexer.getOutputCol()],outputCols=[categoryCol+'classVec']
+    stages = stages + [stringIndexer,encoder]
+
+label_stringIdx = StringIndexer(inputCol='deposit',outputCol='label')
+stages = stages + [label_stringIdx]
+
+numeric_cols = ['age','balance','duration','campaign','pdays','previous']
+assemblerInputs = [c+'classVec' for c in categoryColumns]+numeric_cols
+assembler = VectorAssembler(inputCols=assemblerInputs,outputCol='features')
+stages = stages + [assembler]
+
+from pyspark.ml.pipeline import Pipeline,PipelineModel
+pipeline = Pipeline(stages=stages)
+pipelineModel = pipeline.fit(data)
+data = pipelineModel.transform(data)
+selectedColumns = data.columns
+data = data.select(selectedColumns)
+data.printSchema()
+
+#Train and Test Data split
+train,test = data.randomSplit([0.75,.25],seed = 1234)
+
+#Logistic Regression Model
+from pyspark.ml.classification import LogisticRegression
+logReg = LogisticRegression(featuresCol='features',labelCol='label',maxIter=10)
+lrModel = logReg.fit(train)
+
+#model beta coeffients plot
+beta = np.sort(lrModel.coefficients)
+
+plt.plot(beta)
+plt.ylabel('Beta Coefficients')
+plt.show()
+
+#Train Model Performance Plot
+trainingSummary = lrModel.summary
+roc = trainingSummary.roc.toPandas()
+plt.plot(roc['FPR'],roc['TPR'])
+plt.ylabel('False Positive Rate')
+plt.xlabel('True Positive Rate')
+plt.title('ROC Curve')
+plt.show()
+
+print('Training Set AUC: {}'.format(str(np.round(training.Summary,2)))
+
+precision_recall = trainingSummary.pr.toPandas()
+plt.plot(precision_recall['recall'],precision_recall['precision'])
+plt.ylabel('Precision')
+plt.xlabel('Recall')
+plt.show()
+
+#Model Performance Evaluation using Test data
+predictions = lrModel.transform(test)
+predictions.select('age','job','label','rawPrediction','prediction','prbability').show(10)
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+evaluator = BinaryClassificationEvaluator()
+print('Test data AUC: {}'.format(str(np.round(evaluator.evaluate(predictions),2))))
+
+spark.stop()
